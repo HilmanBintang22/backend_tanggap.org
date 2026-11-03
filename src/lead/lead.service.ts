@@ -1,10 +1,17 @@
-import * as leadRepository from './lead.repository';
+import { PrismaClient } from '@prisma/client';
 
-export const createNewLead = async (leadData: any) => {
-  // Di sini Anda bisa menambahkan validasi, misalnya cek apakah email sudah ada, dll.
-  return await leadRepository.createLead(leadData);
+const prisma = new PrismaClient();
+
+export const createLead = async (data: any) => {
+  return await prisma.lead.create({
+    data: {
+      name: data.schoolName,                       // Memetakan schoolName dari frontend ke kolom 'name' di schema
+      email: data.email,                           // Memetakan email
+      phone: data.phoneNumber || data.phone || '', // Memetakan nomor telepon (mendukung phoneNumber maupun phone)
+    },
+  });
 };
 
 export const fetchAllLeads = async () => {
-  return await leadRepository.getAllLeads();
+  return await prisma.lead.findMany();
 };

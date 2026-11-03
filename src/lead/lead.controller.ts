@@ -3,17 +3,26 @@ import * as leadService from './lead.service';
 
 export const createLead = async (req: Request, res: Response) => {
   try {
-    const { schoolName, picName } = req.body;
+    const { schoolName, contactName, email, phoneNumber, studentCount, address, notes } = req.body;
 
     // Validasi input wajib
-    if (!schoolName || !picName) {
+    if (!schoolName || !email) {
       return res.status(400).json({
         success: false,
-        message: 'Nama sekolah dan PIC wajib diisi',
+        message: 'Nama sekolah dan email wajib diisi',
       });
     }
 
-    const newLead = await leadService.createNewLead(req.body);
+    // Teruskan data ke service menggunakan createLead (bukan createNewLead)
+    const newLead = await leadService.createLead({
+      schoolName,
+      contactName,
+      email,
+      phoneNumber,
+      studentCount,
+      address,
+      notes
+    });
     
     return res.status(201).json({
       success: true,

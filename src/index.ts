@@ -19,6 +19,35 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Healthcheck & Welcome Routes
+app.get('/', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      status: 'success',
+      message: 'Backend tanggap.org aktif & terhubung ke database!',
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: 'Gagal terhubung ke database', details: error });
+  }
+});
+
+app.get('/api', async (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'Tanggap.org API v1 running',
+    endpoints: [
+      '/api/auth',
+      '/api/leads',
+      '/api/assessments',
+      '/api/journals',
+      '/api/gamification',
+      '/api/simulations',
+    ],
+  });
+});
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -28,14 +57,12 @@ app.use('/api/journals', journalRoutes);
 app.use('/api/gamification', gamificationRoutes);
 app.use('/api/simulations', simulationRoutes);
 
-// Healthcheck Route
-app.get('/', async (req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ message: 'Backend tanggap.org aktif & terhubung ke database!' });
-  } catch (error) {
-    res.status(500).json({ error: 'Gagal terhubung ke database', details: error });
-  }
+// 404 Handler untuk rute yang tidak terdaftar
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Rute '${req.method} ${req.originalUrl}' tidak ditemukan`,
+  });
 });
 
 // Jalankan server lokal jika bukan di environment Vercel
