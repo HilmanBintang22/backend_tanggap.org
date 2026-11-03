@@ -10,6 +10,8 @@ import journalRoutes from './journal/journal.routes';
 import authRoutes from './auth/auth.routes';
 import gamificationRoutes from './gamification/gamification.routes';
 import simulationRoutes from './simulation/simulation.routes';
+import classesRoutes from './classes/classes.routes';
+import contentRoutes from './content/content.routes';
 
 dotenv.config();
 
@@ -22,7 +24,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Healthcheck & Welcome Routes
-app.get('/', async (req, res) => {
+app.get('/', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({
@@ -34,17 +36,38 @@ app.get('/', async (req, res) => {
   }
 });
 
-app.get('/api', async (req, res) => {
+app.get('/api', (_req, res) => {
   res.json({
     status: 'success',
     message: 'Tanggap.org API v1 running',
     endpoints: [
-      '/api/auth',
-      '/api/leads',
-      '/api/assessments',
-      '/api/journals',
-      '/api/gamification',
-      '/api/simulations',
+      'POST   /api/auth/register',
+      'POST   /api/auth/login',
+      'GET    /api/auth/me',
+      'POST   /api/auth/forgot-password',
+      'POST   /api/auth/reset-password',
+      'GET    /api/leads',
+      'POST   /api/leads',
+      'PATCH  /api/leads/:id',
+      'GET    /api/assessments',
+      'POST   /api/assessments',
+      'PATCH  /api/assessments/:id',
+      'GET    /api/assessments/questions',
+      'POST   /api/assessments/submit',
+      'GET    /api/journals',
+      'POST   /api/journals',
+      'GET    /api/gamification/leaderboard',
+      'GET    /api/gamification/me',
+      'POST   /api/gamification/points',
+      'GET    /api/simulations',
+      'GET    /api/simulations/:id',
+      'GET    /api/simulations/history/me',
+      'POST   /api/simulations/submit',
+      'POST   /api/simulations',
+      'POST   /api/classes/join',
+      'GET    /api/classes',
+      'GET    /api/content/amigo',
+      'GET    /api/content/toolkits',
     ],
   });
 });
@@ -56,6 +79,8 @@ app.use('/api/assessments', assessmentRoutes);
 app.use('/api/journals', journalRoutes);
 app.use('/api/gamification', gamificationRoutes);
 app.use('/api/simulations', simulationRoutes);
+app.use('/api/classes', classesRoutes);
+app.use('/api/content', contentRoutes);
 
 // 404 Handler untuk rute yang tidak terdaftar
 app.use((req, res) => {

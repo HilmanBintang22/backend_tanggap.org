@@ -7,3 +7,7 @@ export const createNewAssessment = async (data: any) => {
 export const fetchAllAssessments = async () => {
   return await assessmentRepo.getAllAssessments();
 };
+
+export const updateAssessmentStatus = async (id: string, status: string) => {
+  return await assessmentRepo.updateAssessmentStatus(id, status);
+};

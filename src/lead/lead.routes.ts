@@ -1,12 +1,22 @@
-import { Router } from 'express';
-import { createLead, getLeads } from './lead.controller';
+import { Request, Response, Router } from 'express';
+import { createLead, getLeads, updateLeadStatus } from './lead.controller';
+import { authenticateToken } from '../middleware/auth.middleware';
+import { authorizeRoles } from '../middleware/role.middleware';
 
 const router = Router();
 
-// Route untuk menerima form (baik dari Web/Frontend maupun Google Form Webhook)
+// POST /api/leads — Menerima form dari Landing Page (tidak perlu token)
 router.post('/', createLead);
 
-// Route untuk mengambil daftar lead
+// GET /api/leads — Daftar lead (terbuka untuk admin)
 router.get('/', getLeads);
+
+// PATCH /api/leads/:id — Update status lead (hanya admin)
+router.patch(
+  '/:id',
+  authenticateToken,
+  authorizeRoles('SCHOOL_ADMIN', 'SUPER_ADMIN'),
+  updateLeadStatus
+);
 
 export default router;
