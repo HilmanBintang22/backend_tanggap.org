@@ -1,11 +1,25 @@
 import { Router } from 'express';
 import * as controller from './gamification.controller';
-import { authenticateToken } from '../middleware/auth.middleware';
+import { authenticateToken, optionalAuth } from '../middleware/auth.middleware';
 
 const router = Router();
 
-router.get('/leaderboard', authenticateToken, controller.getLeaderboard);
-router.get('/me', authenticateToken, controller.getUserStats);
+// GET /api/gamification/leaderboard — Peringkat poin siswa
+router.get('/leaderboard', optionalAuth, controller.getLeaderboard);
+
+// GET /api/gamification/weekly-challenges — Tantangan mingguan siswa
+router.get('/weekly-challenges', optionalAuth, controller.getWeeklyChallenges);
+
+// GET /api/gamification/badges — Daftar semua badge yang tersedia
+router.get('/badges', optionalAuth, controller.getAllBadges);
+
+// GET /api/gamification/my-stats — Statistik progres gamifikasi siswa (alias untuk /me)
+router.get('/my-stats', optionalAuth, controller.getUserStats);
+
+// GET /api/gamification/me — Statistik progres gamifikasi siswa
+router.get('/me', optionalAuth, controller.getUserStats);
+
+// POST /api/gamification/points — Tambah poin siswa (butuh token)
 router.post('/points', authenticateToken, controller.addPoints);
 
 export default router;

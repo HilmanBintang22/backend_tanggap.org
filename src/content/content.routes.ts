@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import { authenticateToken } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -47,6 +46,14 @@ const AMIGO_CONTENT = [
   },
 ];
 
+// Tracker unduhan toolkit dalam memori
+const toolkitDownloads: Record<string, number> = {
+  '1': 48,
+  '2': 85,
+  '3': 63,
+  '4': 92,
+};
+
 // Konten Toolkit (Alat bantu praktis untuk siswa)
 const TOOLKIT_CONTENT = [
   {
@@ -83,8 +90,8 @@ const TOOLKIT_CONTENT = [
   },
 ];
 
-// GET /api/content/amigo
-router.get('/amigo', authenticateToken, async (_req: Request, res: Response) => {
+// GET /api/content/amigo — Publik (Bebas Akses tanpa Token)
+router.get('/amigo', (_req: Request, res: Response) => {
   return res.status(200).json({
     success: true,
     total: AMIGO_CONTENT.length,
@@ -92,14 +99,37 @@ router.get('/amigo', authenticateToken, async (_req: Request, res: Response) => 
   });
 });
 
-// GET /api/content/toolkits
-router.get('/toolkits', authenticateToken, async (_req: Request, res: Response) => {
+// GET /api/content/toolkits — Publik (Bebas Akses tanpa Token)
+router.get('/toolkits', (_req: Request, res: Response) => {
+  const data = TOOLKIT_CONTENT.map((item) => ({
+    ...item,
+    downloads: toolkitDownloads[item.id] || 0,
+  }));
+
   return res.status(200).json({
     success: true,
-    total: TOOLKIT_CONTENT.length,
-    data: TOOLKIT_CONTENT,
+    total: data.length,
+    data,
+  });
+});
+
+// POST /api/content/toolkits/:id/download — Mencatat unduhan toolkit (Download Counter)
+router.post('/toolkits/:id/download', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const toolkitId = Array.isArray(id) ? id[0] : id;
+
+  toolkitDownloads[toolkitId] = (toolkitDownloads[toolkitId] || 0) + 1;
+  const item = TOOLKIT_CONTENT.find((t) => t.id === toolkitId);
+
+  return res.status(200).json({
+    success: true,
+    message: 'Unduhan berhasil dicatat',
+    data: {
+      id: toolkitId,
+      title: item?.title || `Toolkit #${toolkitId}`,
+      downloads: toolkitDownloads[toolkitId],
+    },
   });
 });
 
 export default router;
-

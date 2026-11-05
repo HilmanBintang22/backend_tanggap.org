@@ -26,3 +26,20 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction) => 
 };
 
 export const authenticateToken = verifyToken;
+
+// Middleware opsional: jika ada token valid, pasang ke req.user; jika tidak ada, tetap lanjut (tidak 401)
+export const optionalAuth = (req: Request, _res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return next();
+  }
+
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (!err && user) {
+      (req as any).user = user;
+    }
+    next();
+  });
+};
