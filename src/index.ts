@@ -14,6 +14,7 @@ import classesRoutes from './classes/classes.routes';
 import contentRoutes from './content/content.routes';
 import teacherRoutes from './teacher/teacher.routes';
 import adminRoutes from './admin/admin.routes';
+import schoolsRoutes from './schools/schools.routes';
 
 dotenv.config();
 
@@ -66,11 +67,13 @@ app.get('/api', (_req, res) => {
       // Content & Toolkits
       'GET    /api/content/amigo',
       'GET    /api/content/toolkits',
+      'GET    /api/content/toolkits/:id',
       'POST   /api/content/toolkits/:id/download',
       // Gamification
       'GET    /api/gamification/leaderboard',
       'GET    /api/gamification/weekly-challenges',
       'GET    /api/gamification/badges',
+      'GET    /api/gamification/my-badges',
       'GET    /api/gamification/my-stats',
       'GET    /api/gamification/me',
       'POST   /api/gamification/points',
@@ -90,6 +93,9 @@ app.get('/api', (_req, res) => {
       // Classes
       'POST   /api/classes/join',
       'GET    /api/classes',
+      'GET    /api/classes/:id',
+      // Schools
+      'GET    /api/schools',
     ],
   });
 });
@@ -105,6 +111,7 @@ app.use('/api/classes', classesRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/teacher', teacherRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/schools', schoolsRoutes);
 
 // 404 Handler untuk rute yang tidak terdaftar
 app.use((req, res) => {

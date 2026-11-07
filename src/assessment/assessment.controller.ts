@@ -23,36 +23,59 @@ const translateAssessment = (a: any) => ({
   status: ASSESSMENT_STATUS_LABEL[a.status] ?? a.status,
 });
 
-// Helper: Parsing jawaban dari berbagai format payload (Array maupun Object)
+// Helper: Konversi nilai jawaban baik angka (1, 2, 3, 4 / 0, 1, 2, 3) maupun huruf ('a', 'b', 'c', 'd')
+function mapValueToOption(val: any): string {
+  if (val === null || val === undefined) return '';
+  const str = String(val).trim().toLowerCase();
+
+  // Pilihan huruf langsung
+  if (str === 'a' || str === 's') return 'a';
+  if (str === 'b' || str === 'k') return 'b';
+  if (str === 'c' || str === 'm') return 'c';
+  if (str === 'd' || str === 'p') return 'd';
+
+  // Pilihan angka (1-based: 1=a, 2=b, 3=c, 4=d)
+  if (str === '1') return 'a';
+  if (str === '2') return 'b';
+  if (str === '3') return 'c';
+  if (str === '4') return 'd';
+
+  // Pilihan angka 0-based
+  if (str === '0') return 'a';
+
+  return str;
+}
+
+// Helper: Parsing jawaban dari berbagai format payload (Array maupun Object dengan value angka/string)
 function parseAnswers(body: any): { questionId: number; selectedOption: string }[] {
   if (!body) return [];
 
   // Jika payload dibungkus dalam { answers: ... } atau langsung di body
   const raw = body.answers !== undefined ? body.answers : body;
 
-  // Format 1: Array of objects [{ questionId: 1, selectedOption: 'a' }] atau [{ id: 1, answer: 'a' }]
+  // Format 1: Array of objects [{ questionId: 1, selectedOption: 3 }] atau array primitif [3, 4, 1]
   if (Array.isArray(raw)) {
     return raw.map((item, idx) => {
-      if (typeof item === 'string') {
-        return { questionId: idx + 1, selectedOption: item.toLowerCase().trim() };
+      if (typeof item === 'string' || typeof item === 'number') {
+        return { questionId: idx + 1, selectedOption: mapValueToOption(item) };
       }
       const qId = item.questionId ?? item.id ?? item.question_id ?? idx + 1;
-      const opt = item.selectedOption ?? item.answer ?? item.option ?? item.value ?? '';
-      return { questionId: Number(qId), selectedOption: String(opt).toLowerCase().trim() };
+      const opt = item.selectedOption ?? item.answer ?? item.option ?? item.value ?? item.val ?? '';
+      return { questionId: Number(qId), selectedOption: mapValueToOption(opt) };
     });
   }
 
-  // Format 2: Object { "1": "a", "2": "b", ... }
+  // Format 2: Object { "1": 3, "2": 4, ... } atau { "1": "a", "2": "b" }
   if (typeof raw === 'object' && raw !== null) {
     const list: { questionId: number; selectedOption: string }[] = [];
     for (const [key, val] of Object.entries(raw)) {
       const qId = Number(key);
       if (!isNaN(qId)) {
-        if (typeof val === 'string') {
-          list.push({ questionId: qId, selectedOption: val.toLowerCase().trim() });
+        if (typeof val === 'string' || typeof val === 'number') {
+          list.push({ questionId: qId, selectedOption: mapValueToOption(val) });
         } else if (typeof val === 'object' && val !== null) {
-          const opt = (val as any).selectedOption ?? (val as any).answer ?? (val as any).option ?? '';
-          list.push({ questionId: qId, selectedOption: String(opt).toLowerCase().trim() });
+          const opt = (val as any).selectedOption ?? (val as any).answer ?? (val as any).option ?? (val as any).value ?? '';
+          list.push({ questionId: qId, selectedOption: mapValueToOption(opt) });
         }
       }
     }
@@ -72,8 +95,7 @@ export const getAssessmentQuestions = (_req: Request, res: Response) => {
 };
 
 // POST /api/assessments/submit
-// Menerima Format Array: [{ questionId: 1, selectedOption: 'a' }]
-// Maupun Format Object: { "1": "a", "2": "b", ... } atau { answers: { "1": "a", ... } }
+// Menerima Format Array maupun Format Object: { answers: { "1": 3, "2": 4 } } atau { "1": "a", "2": "b" }
 export const submitAssessment = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const parsedAnswers = parseAnswers(req.body);
@@ -91,9 +113,20 @@ export const submitAssessment = async (req: AuthenticatedRequest, res: Response)
     for (const answer of parsedAnswers) {
       const question = ASSESSMENT_QUESTIONS.find((q) => q.id === answer.questionId);
       if (!question) continue;
-      const option = question.options.find((o) => o.id.toLowerCase() === answer.selectedOption.toLowerCase());
+
+      const optStr = answer.selectedOption.toLowerCase();
+      const option = question.options.find(
+        (o) => o.id.toLowerCase() === optStr || o.type.toLowerCase() === optStr
+      );
+
       if (option) {
         score[option.type] = (score[option.type] || 0) + 1;
+      } else {
+        // Fallback: jika berupa nomor indeks 1-4
+        const num = Number(optStr);
+        if (!isNaN(num) && num >= 1 && num <= question.options.length) {
+          score[question.options[num - 1].type] = (score[question.options[num - 1].type] || 0) + 1;
+        }
       }
     }
 

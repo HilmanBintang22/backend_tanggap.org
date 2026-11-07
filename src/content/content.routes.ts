@@ -2,104 +2,144 @@ import { Router, Request, Response } from 'express';
 
 const router = Router();
 
-// Konten AMIGO (Aktivitas Manajemen Identitas, Growth mindset, dan Orientasi karir)
-const AMIGO_CONTENT = [
-  {
-    id: '1',
-    title: 'Mengenal Diri Sendiri Lewat Temperamen',
-    category: 'Identitas',
-    description: 'Panduan memahami 4 tipe temperamen dan bagaimana hal itu mempengaruhi cara kamu belajar, bergaul, dan menghadapi konflik.',
-    duration: '15 menit',
-    type: 'article',
-  },
-  {
-    id: '2',
-    title: 'Growth Mindset: Otak yang Bisa Berkembang',
-    category: 'Growth Mindset',
-    description: 'Pelajari ilmu di balik growth mindset dan cara melatih pola pikir yang mendukung perkembanganmu sebagai pelajar.',
-    duration: '20 menit',
-    type: 'article',
-  },
-  {
-    id: '3',
-    title: 'Eksplorasi Minat & Karir',
-    category: 'Orientasi Karir',
-    description: 'Temukan bidang karir yang sesuai dengan kepribadian dan minatmu melalui panduan eksplorasi terstruktur.',
-    duration: '25 menit',
-    type: 'interactive',
-  },
-  {
-    id: '4',
-    title: 'Mengelola Konflik dengan Empati',
-    category: 'Sosial',
-    description: 'Teknik-teknik praktis untuk memahami sudut pandang orang lain dan menyelesaikan konflik secara konstruktif.',
-    duration: '18 menit',
-    type: 'article',
-  },
-  {
-    id: '5',
-    title: 'Membangun Kepercayaan Diri',
-    category: 'Identitas',
-    description: 'Strategi berbasis psikologi untuk membangun rasa percaya diri yang sehat dan berkelanjutan.',
-    duration: '12 menit',
-    type: 'article',
-  },
-];
+// Data AMIGO Board Game (Rules, 4 Langkah Bermain, & videoUrl)
+const AMIGO_BOARDGAME = {
+  id: 'amigo-boardgame',
+  title: 'Board Game AMIGO (Aktivitas Mediasi & Resolusi Konflik Siswa)',
+  subtitle: 'Media Pembelajaran Interaktif Resolusi Konflik Teman Sebaya',
+  description:
+    'Media pembelajaran interaktif berbasis board game untuk melatih empati, komunikasi asertif, dan mediasi konflik teman sebaya di sekolah.',
+  videoUrl: 'https://www.youtube.com/embed/amigo-boardgame-tutorial',
+  playerCount: '4 - 6 Siswa',
+  estimatedDuration: '45 - 60 Menit',
+  components: [
+    'Papan Permainan AMIGO',
+    '35 Kartu Skenario Kasus Konflik Nyata di Sekolah',
+    'Kartu Profil 4 Temperamen (Sanguinis, Koleris, Melankolis, Phlegmatis)',
+    'Kartu Aksi Komunikasi Asertif & Mediasi',
+    'Lembar Kesepakatan Damai & Papan Skor Perdamaian',
+  ],
+  rules: [
+    'Bentuk kelompok 4-6 siswa dipandu oleh 1 mediator sebaya atau Guru BK.',
+    'Ambil kartu skenario kasus konflik yang terjadi di lingkungan sekolah.',
+    'Gunakan kartu perspektif & temperamen untuk memahami sudut pandang lawan bicara.',
+    'Raih kesepakatan damai (win-win solution) sebelum timer permainan habis.',
+  ],
+  steps: [
+    {
+      step: 1,
+      title: 'Pengenalan Kasus (Case Identification)',
+      description: 'Pemain mengambil kartu skenario konflik nyata dan membaca narasi kejadian secara bergantian.',
+      objective: 'Memahami kronologi dan mengidentifikasi isu utama pemicu konflik.',
+    },
+    {
+      step: 2,
+      title: 'Eksplorasi Perspektif & Emosi (Empathy Mapping)',
+      description: 'Menganalisis emosi dan motif tersembunyi dari masing-masing pihak menggunakan kartu 4 temperamen.',
+      objective: 'Melatih empati dan memahami sudut pandang pihak yang berselisih.',
+    },
+    {
+      step: 3,
+      title: 'Perumusan Solusi Asertif (Action Options)',
+      description: 'Menyusun alternatif solusi menang-menang (win-win solution) dengan kartu aksi komunikasi asertif.',
+      objective: 'Mencegah eskalasi konflik dan menemukan titik temu yang adil.',
+    },
+    {
+      step: 4,
+      title: 'Kesepakatan & Resolusi Damai (Resolution Agreement)',
+      description: 'Menyepakati rencana tindak lanjut bersama dan menandatangani formulir komitmen damai kelompok.',
+      objective: 'Membangun komitmen nyata perilaku positif dan anti-bullying di sekolah.',
+    },
+  ],
+};
 
 // Tracker unduhan toolkit dalam memori
 const toolkitDownloads: Record<string, number> = {
-  '1': 48,
-  '2': 85,
-  '3': 63,
-  '4': 92,
+  '1': 64,
+  '2': 112,
+  '3': 88,
+  '4': 95,
 };
 
-// Konten Toolkit (Alat bantu praktis untuk siswa)
+// Konten Toolkit dengan kategori 'Bimbingan dan Konseling (BK)' & 'Mediasi Mandiri' + metadata dokumen
 const TOOLKIT_CONTENT = [
   {
     id: '1',
-    title: 'Template Refleksi Harian',
-    category: 'Jurnal',
-    description: 'Template terstruktur untuk menulis jurnal refleksi harian yang membantu proses pertumbuhan diri.',
-    type: 'template',
-    downloadUrl: null,
+    title: 'Modul Panduan Bimbingan Konseling (BK): Penanganan Kasus Bullying & Mediasi',
+    category: 'Bimbingan dan Konseling (BK)',
+    description:
+      'Panduan komprehensif bagi Guru BK dalam melakukan asesmen dini, konseling individual, dan intervensi kelompok di lingkungan sekolah.',
+    format: 'PDF',
+    pages: '28 halaman',
+    pageCount: 28,
+    fileSize: '3.4 MB',
+    author: 'Tim Ahli Psikologi Tanggap.org',
+    downloadUrl: '/downloads/modul-bk-mediasi.pdf',
+    previewUrl: '/preview/modul-bk-mediasi.pdf',
+    type: 'guide',
   },
   {
     id: '2',
-    title: 'Kalkulator Gaya Belajar',
-    category: 'Asesmen',
-    description: 'Alat bantu interaktif untuk menemukan gaya belajar dominanmu (Visual, Auditori, atau Kinestetik).',
-    type: 'interactive',
-    downloadUrl: null,
+    title: 'Lembar Kerja Mediasi Mandiri Antar Siswa (Peer Mediation Worksheet)',
+    category: 'Mediasi Mandiri',
+    description:
+      'Template kerja mandiri bagi siswa untuk menganalisis konflik pribadi, mengenali pemicu emosi, dan merumuskan solusi damai mandiri.',
+    format: 'PDF',
+    pages: '12 halaman',
+    pageCount: 12,
+    fileSize: '1.8 MB',
+    author: 'Divisi Edukasi Tanggap.org',
+    downloadUrl: '/downloads/lembar-mediasi-mandiri.pdf',
+    previewUrl: '/preview/lembar-mediasi-mandiri.pdf',
+    type: 'template',
   },
   {
     id: '3',
-    title: 'Panduan Resolusi Konflik',
-    category: 'Konflik',
-    description: 'Langkah-langkah sistematis untuk menyelesaikan konflik antarpribadi secara damai dan konstruktif.',
-    type: 'guide',
-    downloadUrl: null,
+    title: 'Formulir Refleksi Harian Siswa & Pengendalian Emosi',
+    category: 'Bimbingan dan Konseling (BK)',
+    description:
+      'Instrumen refleksi mingguan terstruktur untuk memantau mood siswa dan melatih kesadaran diri (self-awareness).',
+    format: 'DOCX',
+    pages: '8 halaman',
+    pageCount: 8,
+    fileSize: '1.2 MB',
+    author: 'Tanggap BK Support',
+    downloadUrl: '/downloads/formulir-refleksi-harian.docx',
+    previewUrl: '/preview/formulir-refleksi-harian.docx',
+    type: 'template',
   },
   {
     id: '4',
-    title: 'Peta Karir Berdasarkan Temperamen',
-    category: 'Karir',
-    description: 'Infografis interaktif yang memetakan pilihan karir berdasarkan tipe temperamen.',
-    type: 'infographic',
-    downloadUrl: null,
+    title: 'Pedoman Praktis 5 Langkah Mediasi Mandiri Teman Sebaya',
+    category: 'Mediasi Mandiri',
+    description:
+      'Panduan saku praktis langkah demi langkah untuk menyelesaikan kesalahpahaman antarteman di kelas secara konstruktif.',
+    format: 'PDF',
+    pages: '16 halaman',
+    pageCount: 16,
+    fileSize: '2.1 MB',
+    author: 'Fasilitator Sebangku',
+    downloadUrl: '/downloads/pedoman-mediasi-mandiri.pdf',
+    previewUrl: '/preview/pedoman-mediasi-mandiri.pdf',
+    type: 'guide',
   },
 ];
 
-// GET /api/content/amigo — Publik (Bebas Akses tanpa Token)
+// GET /api/content/amigo — Publik (Mengembalikan Data AMIGO Board Game: rules, 4 steps, & videoUrl)
 router.get('/amigo', (_req: Request, res: Response) => {
   return res.status(200).json({
     success: true,
-    total: AMIGO_CONTENT.length,
-    data: AMIGO_CONTENT,
+    data: AMIGO_BOARDGAME,
+    // Root level aliases untuk kompatibilitas frontend
+    videoUrl: AMIGO_BOARDGAME.videoUrl,
+    rules: AMIGO_BOARDGAME.rules,
+    steps: AMIGO_BOARDGAME.steps,
+    title: AMIGO_BOARDGAME.title,
+    description: AMIGO_BOARDGAME.description,
   });
 });
 
-// GET /api/content/toolkits — Publik (Bebas Akses tanpa Token)
+// GET /api/content/toolkits — Publik (Kategori BK & Mediasi Mandiri + metadata format, pages, fileSize)
 router.get('/toolkits', (_req: Request, res: Response) => {
   const data = TOOLKIT_CONTENT.map((item) => ({
     ...item,
@@ -110,6 +150,29 @@ router.get('/toolkits', (_req: Request, res: Response) => {
     success: true,
     total: data.length,
     data,
+  });
+});
+
+// GET /api/content/toolkits/:id — Detail spesifik 1 toolkit beserta metadata dokumen
+router.get('/toolkits/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const toolkitId = Array.isArray(id) ? id[0] : id;
+
+  const item = TOOLKIT_CONTENT.find((t) => t.id === toolkitId);
+
+  if (!item) {
+    return res.status(404).json({
+      success: false,
+      message: `Toolkit dengan ID #${toolkitId} tidak ditemukan`,
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      ...item,
+      downloads: toolkitDownloads[item.id] || 0,
+    },
   });
 });
 
