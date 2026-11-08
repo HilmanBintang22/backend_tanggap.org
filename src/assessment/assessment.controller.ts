@@ -23,59 +23,90 @@ const translateAssessment = (a: any) => ({
   status: ASSESSMENT_STATUS_LABEL[a.status] ?? a.status,
 });
 
-// Helper: Konversi nilai jawaban baik angka (1, 2, 3, 4 / 0, 1, 2, 3) maupun huruf ('a', 'b', 'c', 'd')
-function mapValueToOption(val: any): string {
-  if (val === null || val === undefined) return '';
-  const str = String(val).trim().toLowerCase();
+// Helper: Konversi nilai skala Likert 1-7 dari angka maupun string
+function parseLikertValue(val: any): number {
+  if (val === null || val === undefined) return 4;
+  if (typeof val === 'number') {
+    if (isNaN(val)) return 4;
+    return Math.max(1, Math.min(7, Math.round(val)));
+  }
+  const str = String(val).trim();
+  const num = parseInt(str, 10);
+  if (!isNaN(num)) {
+    return Math.max(1, Math.min(7, num));
+  }
+  // Fallback jika berupa huruf (misal legacy opsi)
+  const lower = str.toLowerCase();
+  if (lower === 'a') return 7;
+  if (lower === 'b') return 5;
+  if (lower === 'c') return 3;
+  if (lower === 'd') return 1;
+  return 4;
+}
 
-  // Pilihan huruf langsung
-  if (str === 'a' || str === 's') return 'a';
-  if (str === 'b' || str === 'k') return 'b';
-  if (str === 'c' || str === 'm') return 'c';
-  if (str === 'd' || str === 'p') return 'd';
-
-  // Pilihan angka (1-based: 1=a, 2=b, 3=c, 4=d)
-  if (str === '1') return 'a';
-  if (str === '2') return 'b';
-  if (str === '3') return 'c';
-  if (str === '4') return 'd';
-
-  // Pilihan angka 0-based
-  if (str === '0') return 'a';
-
-  return str;
+interface ParsedAnswer {
+  questionId: number;
+  value: number; // 1 - 7
 }
 
 // Helper: Parsing jawaban dari berbagai format payload (Array maupun Object dengan value angka/string)
-function parseAnswers(body: any): { questionId: number; selectedOption: string }[] {
+function parseAnswers(body: any): ParsedAnswer[] {
   if (!body) return [];
 
-  // Jika payload dibungkus dalam { answers: ... } atau langsung di body
-  const raw = body.answers !== undefined ? body.answers : body;
+  // Unwrap body.data atau body.answers jika dikirim bersarang
+  let raw = body;
+  if (raw && typeof raw === 'object') {
+    if (raw.answers !== undefined) {
+      raw = raw.answers;
+    } else if (raw.data !== undefined) {
+      if (raw.data && typeof raw.data === 'object' && raw.data.answers !== undefined) {
+        raw = raw.data.answers;
+      } else {
+        raw = raw.data;
+      }
+    }
+  }
 
-  // Format 1: Array of objects [{ questionId: 1, selectedOption: 3 }] atau array primitif [3, 4, 1]
+  // Format 1: Array of objects [{ questionId: 1, value: 7 }] atau array nilai primitif [7, 6, 5]
   if (Array.isArray(raw)) {
     return raw.map((item, idx) => {
-      if (typeof item === 'string' || typeof item === 'number') {
-        return { questionId: idx + 1, selectedOption: mapValueToOption(item) };
+      if (typeof item === 'number' || typeof item === 'string') {
+        return { questionId: idx + 1, value: parseLikertValue(item) };
       }
-      const qId = item.questionId ?? item.id ?? item.question_id ?? idx + 1;
-      const opt = item.selectedOption ?? item.answer ?? item.option ?? item.value ?? item.val ?? '';
-      return { questionId: Number(qId), selectedOption: mapValueToOption(opt) };
+      if (item && typeof item === 'object') {
+        const qId = item.questionId ?? item.id ?? item.question_id ?? item.qId ?? idx + 1;
+        const val =
+          item.value ??
+          item.val ??
+          item.rating ??
+          item.score ??
+          item.answer ??
+          item.selectedOption ??
+          4;
+        return { questionId: Number(qId), value: parseLikertValue(val) };
+      }
+      return { questionId: idx + 1, value: 4 };
     });
   }
 
-  // Format 2: Object { "1": 3, "2": 4, ... } atau { "1": "a", "2": "b" }
+  // Format 2: Object { "1": 7, "2": 6 } atau { "1": { value: 7 } }
   if (typeof raw === 'object' && raw !== null) {
-    const list: { questionId: number; selectedOption: string }[] = [];
+    const list: ParsedAnswer[] = [];
     for (const [key, val] of Object.entries(raw)) {
       const qId = Number(key);
-      if (!isNaN(qId)) {
-        if (typeof val === 'string' || typeof val === 'number') {
-          list.push({ questionId: qId, selectedOption: mapValueToOption(val) });
+      if (!isNaN(qId) && qId > 0) {
+        if (typeof val === 'number' || typeof val === 'string') {
+          list.push({ questionId: qId, value: parseLikertValue(val) });
         } else if (typeof val === 'object' && val !== null) {
-          const opt = (val as any).selectedOption ?? (val as any).answer ?? (val as any).option ?? (val as any).value ?? '';
-          list.push({ questionId: qId, selectedOption: mapValueToOption(opt) });
+          const itemVal =
+            (val as any).value ??
+            (val as any).val ??
+            (val as any).rating ??
+            (val as any).score ??
+            (val as any).answer ??
+            (val as any).selectedOption ??
+            4;
+          list.push({ questionId: qId, value: parseLikertValue(itemVal) });
         }
       }
     }
@@ -86,16 +117,18 @@ function parseAnswers(body: any): { questionId: number; selectedOption: string }
 }
 
 // GET /api/assessments/questions
+// Mengembalikan 35 butir pernyataan sikap Skala Likert 1–7 (tanpa opsi A/B/C/D)
 export const getAssessmentQuestions = (_req: Request, res: Response) => {
   return res.status(200).json({
     success: true,
     total: ASSESSMENT_QUESTIONS.length,
     data: ASSESSMENT_QUESTIONS,
+    questions: ASSESSMENT_QUESTIONS,
   });
 };
 
 // POST /api/assessments/submit
-// Menerima Format Array maupun Format Object: { answers: { "1": 3, "2": 4 } } atau { "1": "a", "2": "b" }
+// Menerima Format Array maupun Format Object: { answers: { "1": 7, "2": 6 } } atau { "1": 7, "2": 6 }
 export const submitAssessment = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const parsedAnswers = parseAnswers(req.body);
@@ -107,60 +140,135 @@ export const submitAssessment = async (req: AuthenticatedRequest, res: Response)
       });
     }
 
-    // Hitung skor per tipe temperamen
-    const score: Record<string, number> = { S: 0, K: 0, M: 0, P: 0 };
+    // Akumulasi skor per dimensi kepribadian Likert 1-7
+    const rawScores: Record<'koleris' | 'melankolis' | 'plegmatis' | 'sanguinis', number> = {
+      koleris: 0,
+      melankolis: 0,
+      plegmatis: 0,
+      sanguinis: 0,
+    };
 
-    for (const answer of parsedAnswers) {
-      const question = ASSESSMENT_QUESTIONS.find((q) => q.id === answer.questionId);
+    const counts: Record<'koleris' | 'melankolis' | 'plegmatis' | 'sanguinis', number> = {
+      koleris: 0,
+      melankolis: 0,
+      plegmatis: 0,
+      sanguinis: 0,
+    };
+
+    for (const ans of parsedAnswers) {
+      const question = ASSESSMENT_QUESTIONS.find((q) => q.id === ans.questionId);
       if (!question) continue;
 
-      const optStr = answer.selectedOption.toLowerCase();
-      const option = question.options.find(
-        (o) => o.id.toLowerCase() === optStr || o.type.toLowerCase() === optStr
-      );
+      const dim = question.dimension;
+      rawScores[dim] += ans.value;
+      counts[dim] += 1;
+    }
 
-      if (option) {
-        score[option.type] = (score[option.type] || 0) + 1;
-      } else {
-        // Fallback: jika berupa nomor indeks 1-4
-        const num = Number(optStr);
-        if (!isNaN(num) && num >= 1 && num <= question.options.length) {
-          score[question.options[num - 1].type] = (score[question.options[num - 1].type] || 0) + 1;
-        }
+    // Persentase per dimensi (Skala 0 - 100)
+    // Jika semua butir diisi 7, persentase mencapai 100%
+    const calcPercentage = (dim: 'koleris' | 'melankolis' | 'plegmatis' | 'sanguinis') => {
+      const cnt = counts[dim];
+      if (cnt === 0) return 0;
+      return Math.round((rawScores[dim] / (cnt * 7)) * 100);
+    };
+
+    const kolerisPct = calcPercentage('koleris');
+    const melankolisPct = calcPercentage('melankolis');
+    const plegmatisPct = calcPercentage('plegmatis');
+    const sanguinisPct = calcPercentage('sanguinis');
+
+    const percentage = {
+      koleris: kolerisPct,
+      melankolis: melankolisPct,
+      plegmatis: plegmatisPct,
+      sanguinis: sanguinisPct,
+      // Alias huruf besar dan spelling phlegmatis untuk kompatibilitas penuh
+      phlegmatis: plegmatisPct,
+      Koleris: kolerisPct,
+      Melankolis: melankolisPct,
+      Plegmatis: plegmatisPct,
+      Phlegmatis: plegmatisPct,
+      Sanguinis: sanguinisPct,
+    };
+
+    const raw = {
+      koleris: rawScores.koleris,
+      melankolis: rawScores.melankolis,
+      plegmatis: rawScores.plegmatis,
+      sanguinis: rawScores.sanguinis,
+      phlegmatis: rawScores.plegmatis,
+      Koleris: rawScores.koleris,
+      Melankolis: rawScores.melankolis,
+      Plegmatis: rawScores.plegmatis,
+      Phlegmatis: rawScores.plegmatis,
+      Sanguinis: rawScores.sanguinis,
+    };
+
+    // Skor rata (flat) lowercase sesuai kebutuhan grafik radar frontend:
+    // scores: { koleris, melankolis, plegmatis, sanguinis }
+    const scores = {
+      koleris: kolerisPct,
+      melankolis: melankolisPct,
+      plegmatis: plegmatisPct,
+      sanguinis: sanguinisPct,
+      phlegmatis: plegmatisPct,
+      raw,
+      percentage,
+    };
+
+    // Tentukan tipe temperamen dominan
+    const dimensionList: ('koleris' | 'melankolis' | 'plegmatis' | 'sanguinis')[] = [
+      'koleris',
+      'melankolis',
+      'plegmatis',
+      'sanguinis',
+    ];
+
+    let maxDim: 'koleris' | 'melankolis' | 'plegmatis' | 'sanguinis' = 'koleris';
+    let maxScore = -1;
+    for (const dim of dimensionList) {
+      const scoreVal = scores[dim];
+      if (scoreVal > maxScore) {
+        maxScore = scoreVal;
+        maxDim = dim;
       }
     }
 
-    const total = Object.values(score).reduce((a, b) => a + b, 0) || 1;
-    const percentage = {
-      Sanguinis: Math.round((score.S / total) * 100),
-      Koleris: Math.round((score.K / total) * 100),
-      Melankolis: Math.round((score.M / total) * 100),
-      Phlegmatis: Math.round((score.P / total) * 100),
+    const DOMINANT_TITLES: Record<string, string> = {
+      koleris: 'Koleris',
+      melankolis: 'Melankolis',
+      plegmatis: 'Plegmatis',
+      sanguinis: 'Sanguinis',
     };
-
-    // Tipe dominan
-    const dominantType = Object.entries(percentage).reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+    const dominantType = DOMINANT_TITLES[maxDim] || 'Koleris';
 
     const description: Record<string, string> = {
-      Sanguinis: 'Kamu adalah tipe Sanguinis: sosial, antusias, ekspresif, dan penuh energi.',
-      Koleris: 'Kamu adalah tipe Koleris: pemimpin alami yang tegas, berorientasi tujuan, dan penuh inisiatif.',
-      Melankolis: 'Kamu adalah tipe Melankolis: analitis, perfeksionis, sensitif, dan penuh perhatian terhadap detail.',
-      Phlegmatis: 'Kamu adalah tipe Phlegmatis: tenang, setia, sabar, dan mudah beradaptasi.',
+      Koleris:
+        'Kamu adalah tipe Koleris: berjiwa kepemimpinan kuat, tegas, berorientasi pada hasil dan tindakan nyata, berani mengambil inisiatif perubahan positif di sekolah.',
+      Melankolis:
+        'Kamu adalah tipe Melankolis: pemikir analitis, terstruktur, memiliki standar kualitas tinggi, peka terhadap perasaan orang lain, dan cermat dalam merumuskan solusi pencegahan konflik.',
+      Plegmatis:
+        'Kamu adalah tipe Plegmatis: pembawa damai yang tenang, sabar, akomodatif, pendengar yang baik, dan handal meredakan ketegangan serta menjaga harmoni pertemanan di kelas.',
+      Phlegmatis:
+        'Kamu adalah tipe Plegmatis: pembawa damai yang tenang, sabar, akomodatif, pendengar yang baik, dan handal meredakan ketegangan serta menjaga harmoni pertemanan di kelas.',
+      Sanguinis:
+        'Kamu adalah tipe Sanguinis: pribadi yang antusias, ramah, komunikatif, ekspresif, mampu mencairkan suasana kaku, dan mudah menginspirasi rekan-rekan sebaya dengan energi positif.',
     };
 
-    // Indikator konflik
+    // Indikator pola penyelesaian konflik Tanggap.org
     const conflictIndicators = {
-      dominasiKonflik: score.K > score.S ? 'Tinggi' : 'Rendah',
-      sensitivitasKonflik: score.M > score.P ? 'Tinggi' : 'Rendah',
+      dominasiKonflik: kolerisPct >= sanguinisPct ? 'Tinggi' : 'Rendah',
+      sensitivitasKonflik: melankolisPct >= plegmatisPct ? 'Tinggi' : 'Rendah',
       gayaPenyelesaian:
         dominantType === 'Koleris'
-          ? 'Konfrontatif'
+          ? 'Konfrontatif / Solutif Langsung'
           : dominantType === 'Sanguinis'
-          ? 'Mediasi'
+          ? 'Mediasi & Komunikatif'
           : dominantType === 'Melankolis'
-          ? 'Analitis'
-          : 'Menghindar',
-      risikoEskalasi: score.K + score.M > score.S + score.P ? 'Sedang-Tinggi' : 'Rendah-Sedang',
+          ? 'Analitis & Terstruktur'
+          : 'Akomodatif & Menjaga Harmoni',
+      risikoEskalasi:
+        kolerisPct + melankolisPct > sanguinisPct + plegmatisPct ? 'Sedang-Tinggi' : 'Rendah-Sedang',
     };
 
     const resultId = 'res-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
@@ -171,11 +279,9 @@ export const submitAssessment = async (req: AuthenticatedRequest, res: Response)
       userId: req.user?.id || 'guest',
       userName: req.user?.name || 'Siswa',
       dominantType,
+      dominant_type: dominantType.toLowerCase(),
       description: description[dominantType],
-      scores: {
-        raw: { Sanguinis: score.S, Koleris: score.K, Melankolis: score.M, Phlegmatis: score.P },
-        percentage,
-      },
+      scores,
       conflictIndicators,
       totalAnswered: parsedAnswers.length,
       completedAt: new Date().toISOString(),
@@ -187,6 +293,9 @@ export const submitAssessment = async (req: AuthenticatedRequest, res: Response)
     return res.status(200).json({
       success: true,
       message: 'Asesmen berhasil diselesaikan',
+      dominantType,
+      dominant_type: dominantType.toLowerCase(),
+      scores,
       data: resultData,
     });
   } catch (error: any) {
@@ -200,28 +309,63 @@ export const getAssessmentResult = async (req: Request, res: Response) => {
     const { id } = req.params;
     const resultId = Array.isArray(id) ? id[0] : id;
 
-    // 1. Cek dari memori
+    // 1. Cek dari in-memory cache
     if (assessmentResultsStore.has(resultId)) {
+      const data = assessmentResultsStore.get(resultId);
       return res.status(200).json({
         success: true,
-        data: assessmentResultsStore.get(resultId),
+        dominantType: data.dominantType,
+        dominant_type: data.dominant_type,
+        scores: data.scores,
+        data,
       });
     }
 
-    // 2. Default/Fallback result jika ID dibuka langsung atau dari sesi sebelumnya
+    // 2. Default/Fallback result jika ID dibuka langsung atau sesi terputus
+    const fallbackScores = {
+      koleris: 58,
+      melankolis: 65,
+      plegmatis: 72,
+      sanguinis: 85,
+      phlegmatis: 72,
+      raw: {
+        koleris: 37,
+        melankolis: 41,
+        plegmatis: 45,
+        sanguinis: 48,
+        phlegmatis: 45,
+        Koleris: 37,
+        Melankolis: 41,
+        Plegmatis: 45,
+        Phlegmatis: 45,
+        Sanguinis: 48,
+      },
+      percentage: {
+        koleris: 58,
+        melankolis: 65,
+        plegmatis: 72,
+        sanguinis: 85,
+        phlegmatis: 72,
+        Koleris: 58,
+        Melankolis: 65,
+        Plegmatis: 72,
+        Phlegmatis: 72,
+        Sanguinis: 85,
+      },
+    };
+
     const fallbackResult = {
       id: resultId,
       resultId,
       dominantType: 'Sanguinis',
-      description: 'Kamu adalah tipe Sanguinis: sosial, antusias, ekspresif, dan penuh energi.',
-      scores: {
-        raw: { Sanguinis: 14, Koleris: 8, Melankolis: 7, Phlegmatis: 6 },
-        percentage: { Sanguinis: 40, Koleris: 23, Melankolis: 20, Phlegmatis: 17 },
-      },
+      dominant_type: 'sanguinis',
+      description:
+        'Kamu adalah tipe Sanguinis: pribadi yang antusias, ramah, komunikatif, ekspresif, mampu mencairkan suasana kaku, dan mudah menginspirasi rekan-rekan sebaya dengan energi positif.',
+      scores: fallbackScores,
       conflictIndicators: {
         dominasiKonflik: 'Rendah',
         sensitivitasKonflik: 'Tinggi',
-        gayaPenyelesaian: 'Mediasi',
+        gayaPenyelesaian: 'Mediasi & Komunikatif',
         risikoEskalasi: 'Rendah-Sedang',
       },
       completedAt: new Date().toISOString(),
@@ -229,6 +373,9 @@ export const getAssessmentResult = async (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
+      dominantType: 'Sanguinis',
+      dominant_type: 'sanguinis',
+      scores: fallbackScores,
       data: fallbackResult,
     });
   } catch (error: any) {
