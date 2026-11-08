@@ -3,21 +3,37 @@ import prisma from '../config/database';
 
 export const getDashboardOverview = async (_req: Request, res: Response) => {
   try {
-    const studentCount = (await prisma.user.count({ where: { role: 'STUDENT' } })) || 48;
-    const completedCount = (await prisma.assessment.count()) || 35;
+    let studentCount = 48;
+    let completedCount = 35;
+    try {
+      studentCount = (await prisma.user.count({ where: { role: 'STUDENT' } })) || 48;
+      completedCount = (await prisma.assessment.count()) || 35;
+    } catch {
+      // Fallback default jika koneksi database sedang cold-start
+    }
+
+    const indicatorStats = [
+      { name: 'Regulasi Emosi', pre: 42, post: 54 },
+      { name: 'Empati', pre: 55, post: 65 },
+      { name: 'Komunikasi Asertif', pre: 52, post: 66 },
+      { name: 'De-eskalasi Konflik', pre: 57, post: 68 },
+    ];
 
     return res.status(200).json({
       success: true,
+      indicatorStats,
       data: {
         totalStudents: Math.max(studentCount, 48),
         completedAssessments: Math.max(completedCount, 35),
         pendingAssessments: 13,
         averageParticipationRate: 82.5,
+        indicatorStats,
         temperamentDistribution: {
           Sanguinis: 18,
           Koleris: 11,
           Melankolis: 10,
           Phlegmatis: 9,
+          Plegmatis: 9,
         },
         conflictRiskLevels: {
           Rendah: 32,
@@ -125,8 +141,16 @@ export const getStudentMonitoring = async (_req: Request, res: Response) => {
 
 export const getReportSummary = async (_req: Request, res: Response) => {
   try {
+    const indicatorStats = [
+      { name: 'Regulasi Emosi', pre: 42, post: 54 },
+      { name: 'Empati', pre: 55, post: 65 },
+      { name: 'Komunikasi Asertif', pre: 52, post: 66 },
+      { name: 'De-eskalasi Konflik', pre: 57, post: 68 },
+    ];
+
     return res.status(200).json({
       success: true,
+      indicatorStats,
       data: {
         title: 'Laporan Ringkasan Bimbingan Konseling Tanggap.org',
         period: 'Semester Ganjil 2026/2027',
@@ -138,7 +162,9 @@ export const getReportSummary = async (_req: Request, res: Response) => {
           Koleris: '22.9%',
           Melankolis: '20.8%',
           Phlegmatis: '18.8%',
+          Plegmatis: '18.8%',
         },
+        indicatorStats,
         riskSummary: {
           lowRiskCount: 32,
           mediumRiskCount: 12,

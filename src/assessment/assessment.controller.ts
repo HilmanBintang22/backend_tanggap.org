@@ -216,31 +216,38 @@ export const submitAssessment = async (req: AuthenticatedRequest, res: Response)
       percentage,
     };
 
-    // Tentukan tipe temperamen dominan
-    const dimensionList: ('koleris' | 'melankolis' | 'plegmatis' | 'sanguinis')[] = [
-      'koleris',
-      'melankolis',
-      'plegmatis',
-      'sanguinis',
-    ];
-
-    let maxDim: 'koleris' | 'melankolis' | 'plegmatis' | 'sanguinis' = 'koleris';
-    let maxScore = -1;
-    for (const dim of dimensionList) {
-      const scoreVal = scores[dim];
-      if (scoreVal > maxScore) {
-        maxScore = scoreVal;
-        maxDim = dim;
-      }
-    }
-
+    // Tentukan Top 2 tipe temperamen dominan (Rank 1 & Rank 2)
     const DOMINANT_TITLES: Record<string, string> = {
       koleris: 'Koleris',
       melankolis: 'Melankolis',
       plegmatis: 'Plegmatis',
       sanguinis: 'Sanguinis',
     };
-    const dominantType = DOMINANT_TITLES[maxDim] || 'Koleris';
+
+    const dimensionList: ('koleris' | 'melankolis' | 'plegmatis' | 'sanguinis')[] = [
+      'plegmatis',
+      'sanguinis',
+      'koleris',
+      'melankolis',
+    ];
+
+    // Urutkan dimensi secara menurun berdasarkan nilai persentase (dan raw score jika seri)
+    const sortedDims = [...dimensionList].sort((a, b) => {
+      if (scores[b] !== scores[a]) {
+        return scores[b] - scores[a];
+      }
+      return rawScores[b] - rawScores[a];
+    });
+
+    const rank1Dim = sortedDims[0];
+    const rank2Dim = sortedDims[1];
+
+    const rank1Title = DOMINANT_TITLES[rank1Dim] || 'Melankolis';
+    const rank2Title = DOMINANT_TITLES[rank2Dim] || 'Plegmatis';
+
+    // Format dominan sesuai kebutuhan frontend: "Dominan Melankolis-Plegmatis"
+    const dominantStyle = `Dominan ${rank1Title}-${rank2Title}`;
+    const dominantType = rank1Title;
 
     const description: Record<string, string> = {
       Koleris:
@@ -278,8 +285,13 @@ export const submitAssessment = async (req: AuthenticatedRequest, res: Response)
       resultId,
       userId: req.user?.id || 'guest',
       userName: req.user?.name || 'Siswa',
+      dominantStyle,
+      dominant_style: dominantStyle,
       dominantType,
       dominant_type: dominantType.toLowerCase(),
+      primaryDominant: rank1Title,
+      secondaryDominant: rank2Title,
+      topTemperaments: [rank1Title, rank2Title],
       description: description[dominantType],
       scores,
       conflictIndicators,
@@ -293,8 +305,13 @@ export const submitAssessment = async (req: AuthenticatedRequest, res: Response)
     return res.status(200).json({
       success: true,
       message: 'Asesmen berhasil diselesaikan',
+      dominantStyle,
+      dominant_style: dominantStyle,
       dominantType,
       dominant_type: dominantType.toLowerCase(),
+      primaryDominant: rank1Title,
+      secondaryDominant: rank2Title,
+      topTemperaments: [rank1Title, rank2Title],
       scores,
       data: resultData,
     });
@@ -314,8 +331,13 @@ export const getAssessmentResult = async (req: Request, res: Response) => {
       const data = assessmentResultsStore.get(resultId);
       return res.status(200).json({
         success: true,
+        dominantStyle: data.dominantStyle,
+        dominant_style: data.dominant_style,
         dominantType: data.dominantType,
         dominant_type: data.dominant_type,
+        primaryDominant: data.primaryDominant,
+        secondaryDominant: data.secondaryDominant,
+        topTemperaments: data.topTemperaments,
         scores: data.scores,
         data,
       });
@@ -357,8 +379,13 @@ export const getAssessmentResult = async (req: Request, res: Response) => {
     const fallbackResult = {
       id: resultId,
       resultId,
+      dominantStyle: 'Dominan Sanguinis-Plegmatis',
+      dominant_style: 'Dominan Sanguinis-Plegmatis',
       dominantType: 'Sanguinis',
       dominant_type: 'sanguinis',
+      primaryDominant: 'Sanguinis',
+      secondaryDominant: 'Plegmatis',
+      topTemperaments: ['Sanguinis', 'Plegmatis'],
       description:
         'Kamu adalah tipe Sanguinis: pribadi yang antusias, ramah, komunikatif, ekspresif, mampu mencairkan suasana kaku, dan mudah menginspirasi rekan-rekan sebaya dengan energi positif.',
       scores: fallbackScores,
@@ -373,8 +400,13 @@ export const getAssessmentResult = async (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
+      dominantStyle: 'Dominan Sanguinis-Plegmatis',
+      dominant_style: 'Dominan Sanguinis-Plegmatis',
       dominantType: 'Sanguinis',
       dominant_type: 'sanguinis',
+      primaryDominant: 'Sanguinis',
+      secondaryDominant: 'Plegmatis',
+      topTemperaments: ['Sanguinis', 'Plegmatis'],
       scores: fallbackScores,
       data: fallbackResult,
     });
