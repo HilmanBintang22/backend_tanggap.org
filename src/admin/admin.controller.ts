@@ -99,3 +99,63 @@ export const getMonitoringAssessment = async (_req: Request, res: Response) => {
   }
 };
 
+// ==========================================
+// MANAJEMEN PENGGUNA (UNTUK POIN 2)
+// ==========================================
+
+// 1. Mengambil seluruh daftar pengguna untuk admin
+export const getAllUsers = async (_req: Request, res: Response) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        schoolName: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.status(200).json({
+      success: true,
+      total: users.length,
+      data: users,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// 2. Mengubah role pengguna tertentu
+export const updateUserRole = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body; // Contoh payload: { "role": "TEACHER_BK" }
+
+    if (!role) {
+      return res.status(400).json({ success: false, message: 'Role baru harus disertakan' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: String(id) }, // Diubah menjadi String(id) agar aman dari error tipe Express params
+      data: { role },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        schoolName: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Role pengguna berhasil diperbarui',
+      data: updatedUser,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

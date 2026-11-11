@@ -1,101 +1,230 @@
-import { Request, Response, Router } from 'express';
-import * as controller from './auth.controller';
-import { verifyToken } from './auth.middleware';
-import { ROLE_LABEL } from '../constants/labels';
+import { Request, Response } from 'express';
+import { PrismaClient, Role } from '@prisma/client';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
-const router = Router();
+const prisma = new PrismaClient();
+const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-jwt-tanggap-org';
 
-const errMsg = (error: unknown) =>
-  error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
+// Helper: Memetakan input role bahasa Indonesia / user input ke enum Role Prisma
+export const mapRoleToEnum = (roleInput?: string): Role => {
+  if (!roleInput) return Role.STUDENT;
+  const normalized = roleInput.trim().toUpperCase().replace(/\s+/g, '_');
 
-// Helper: bersihkan passwordHash dan terjemahkan role
-const sanitizeUser = (user: any) => {
-  const { passwordHash, ...u } = user;
-  return { ...u, role: ROLE_LABEL[u.role] ?? u.role };
+  if (normalized === 'SISWA' || normalized === 'STUDENT') return Role.STUDENT;
+  if (
+    normalized === 'GURU' ||
+    normalized === 'GURU_BK' ||
+    normalized === 'TEACHER' ||
+    normalized === 'TEACHER_BK'
+  ) {
+    return Role.TEACHER_BK;
+  }
+  if (
+    normalized === 'ADMIN' ||
+    normalized === 'ADMIN_SEKOLAH' ||
+    normalized === 'SCHOOL_ADMIN'
+  ) {
+    return Role.SCHOOL_ADMIN;
+  }
+  if (normalized === 'SUPER_ADMIN' || normalized === 'SUPERADMIN') {
+    return Role.SUPER_ADMIN;
+  }
+
+  return Role.STUDENT;
 };
 
-// POST /api/auth/register
-router.post('/register', async (req: Request, res: Response) => {
+// Helper: Bersihkan passwordHash dan format user untuk respons
+export const sanitizeUser = (user: any, roleLabelMap?: any) => {
+  if (!user) return null;
+  const { passwordHash, ...u } = user;
+  const finalRole = roleLabelMap ? (roleLabelMap[u.role] ?? u.role) : u.role;
+  return { ...u, role: finalRole };
+};
+
+export const registerUser = async (req: Request, res: Response) => {
   try {
-    const result = await controller.registerUser(req.body);
-    const user = sanitizeUser(result.user);
+    const data = req.body;
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: data.email },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'Email sudah terdaftar' });
+    }
+
+    let finalRole = mapRoleToEnum(data.role);
+    let finalSchoolName = data.schoolName || data.school || null;
+
+    const schoolLead = await prisma.lead.findFirst({
+      where: {
+        email: data.email,
+        status: 'SENT',
+      },
+    });
+
+    if (schoolLead) {
+      finalRole = Role.TEACHER_BK;
+      const leadAny: any = schoolLead;
+      if (leadAny.schoolName || leadAny.school || leadAny.name) {
+        finalSchoolName = leadAny.schoolName || leadAny.school || leadAny.name;
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(data.password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        passwordHash: hashedPassword,
+        role: finalRole,
+        schoolName: finalSchoolName,
+      },
+    });
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     return res.status(201).json({
       success: true,
       message: 'Registrasi berhasil',
-      token: result.token,
+      token,
       user,
-      // Backward-compat: data juga disertakan
-      data: { token: result.token, user },
+      data: { token, user },
     });
-  } catch (error) {
-    return res.status(400).json({ success: false, message: errMsg(error) });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message || 'Terjadi kesalahan' });
   }
-});
+};
 
-// POST /api/auth/login
-router.post('/login', async (req: Request, res: Response) => {
+export const loginUser = async (req: Request, res: Response) => {
   try {
-    const result = await controller.loginUser(req.body);
-    const user = sanitizeUser(result.user);
+    const data = req.body;
+    const user = await prisma.user.findUnique({
+      where: { email: data.email },
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Email atau password salah' });
+    }
+
+    const isPasswordValid = await bcrypt.compare(data.password, user.passwordHash);
+    if (!isPasswordValid) {
+      return res.status(400).json({ success: false, message: 'Email atau password salah' });
+    }
+
+    let currentRole = user.role;
+    let currentSchoolName = user.schoolName;
+
+    if (user.role === Role.STUDENT) {
+      const schoolLead = await prisma.lead.findFirst({
+        where: {
+          email: user.email,
+          status: 'SENT',
+        },
+      });
+
+      if (schoolLead) {
+        currentRole = Role.TEACHER_BK;
+        const leadAny: any = schoolLead;
+        if (leadAny.schoolName || leadAny.school || leadAny.name) {
+          currentSchoolName = leadAny.schoolName || leadAny.school || leadAny.name;
+        }
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            role: currentRole,
+            schoolName: currentSchoolName,
+          },
+        });
+      }
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: currentRole },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    const updatedUser = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
 
     return res.status(200).json({
       success: true,
       message: 'Login berhasil',
-      token: result.token,
-      user,
-      data: { token: result.token, user },
+      token,
+      user: updatedUser,
+      data: { token, user: updatedUser },
     });
-  } catch (error) {
-    return res.status(400).json({ success: false, message: errMsg(error) });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message || 'Terjadi kesalahan' });
   }
-});
+};
 
-// GET /api/auth/me
-router.get('/me', verifyToken, async (req: Request, res: Response) => {
+export const getUserById = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const rawUser = await controller.getUserById(userId);
+    const userId = (req as any).user?.id || req.params.id;
+    const user = await prisma.user.findUnique({
+      where: { id: String(userId) },
+    });
 
-    if (!rawUser) {
+    if (!user) {
       return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
     }
 
-    const user = sanitizeUser(rawUser);
     return res.status(200).json({
       success: true,
       user,
       data: user,
     });
-  } catch (error) {
-    return res.status(400).json({ success: false, message: errMsg(error) });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message || 'Terjadi kesalahan' });
   }
-});
+};
 
-// POST /api/auth/forgot-password
-router.post('/forgot-password', async (req: Request, res: Response) => {
+export const processForgotPassword = async (req: Request, res: Response) => {
   try {
-    await controller.processForgotPassword(req.body.email);
+    const { email } = req.body;
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Email tidak ditemukan dalam sistem' });
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Instruksi pemulihan kata sandi berhasil diproses',
     });
-  } catch (error) {
-    return res.status(400).json({ success: false, message: errMsg(error) });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message || 'Terjadi kesalahan' });
   }
-});
+};
 
-// POST /api/auth/reset-password
-router.post('/reset-password', async (req: Request, res: Response) => {
+export const processResetPassword = async (req: Request, res: Response) => {
   try {
-    await controller.processResetPassword(req.body.token, req.body.newPassword);
+    const { token, newPassword } = req.body;
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: decoded.id },
+      data: { passwordHash: hashedPassword },
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Kata sandi berhasil diperbarui',
     });
-  } catch (error) {
-    return res.status(400).json({ success: false, message: errMsg(error) });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: 'Token reset tidak valid atau kedaluwarsa' });
   }
-});
-
-export default router;
+};
