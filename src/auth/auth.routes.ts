@@ -1,8 +1,9 @@
-import { Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient, Role } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
+const router = Router();
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-jwt-tanggap-org';
 
@@ -42,7 +43,9 @@ export const sanitizeUser = (user: any, roleLabelMap?: any) => {
   return { ...u, role: finalRole };
 };
 
-export const registerUser = async (req: Request, res: Response) => {
+// --- Endpoint Handlers ---
+
+const registerUser = async (req: Request, res: Response) => {
   try {
     const data = req.body;
 
@@ -102,7 +105,7 @@ export const registerUser = async (req: Request, res: Response) => {
   }
 };
 
-export const loginUser = async (req: Request, res: Response) => {
+const loginUser = async (req: Request, res: Response) => {
   try {
     const data = req.body;
     const user = await prisma.user.findUnique({
@@ -168,7 +171,7 @@ export const loginUser = async (req: Request, res: Response) => {
   }
 };
 
-export const getUserById = async (req: Request, res: Response) => {
+const getUserById = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || req.params.id;
     const user = await prisma.user.findUnique({
@@ -189,7 +192,7 @@ export const getUserById = async (req: Request, res: Response) => {
   }
 };
 
-export const processForgotPassword = async (req: Request, res: Response) => {
+const processForgotPassword = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
     const user = await prisma.user.findUnique({
@@ -209,7 +212,7 @@ export const processForgotPassword = async (req: Request, res: Response) => {
   }
 };
 
-export const processResetPassword = async (req: Request, res: Response) => {
+const processResetPassword = async (req: Request, res: Response) => {
   try {
     const { token, newPassword } = req.body;
     const decoded: any = jwt.verify(token, JWT_SECRET);
@@ -228,3 +231,13 @@ export const processResetPassword = async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, message: 'Token reset tidak valid atau kedaluwarsa' });
   }
 };
+
+// --- Mapping ke Router ---
+router.post('/register', registerUser);
+router.post('/login', loginUser);
+router.get('/me', getUserById);
+router.post('/forgot-password', processForgotPassword);
+router.post('/reset-password', processResetPassword);
+
+// WAJIB ADA: Ekspor default router agar bisa dibaca bersih di app.ts
+export default router;
