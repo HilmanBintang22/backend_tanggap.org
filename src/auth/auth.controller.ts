@@ -2,9 +2,13 @@ import { Request, Response } from 'express';
 import { PrismaClient, Role } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { OAuth2Client } from 'google-auth-library';
 
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-jwt-tanggap-org';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // Helper: Memetakan input role bahasa Indonesia / user input ke enum Role Prisma
 export const mapRoleToEnum = (roleInput?: string): Role => {
@@ -58,7 +62,6 @@ export const registerUser = async (req: Request, res: Response) => {
 
     if (schoolLead) {
       finalRole = Role.TEACHER_BK;
-      // Menggunakan any atau mengarah ke property opsional yang ada di model Lead
       const leadAny: any = schoolLead;
       if (leadAny.schoolName || leadAny.school || leadAny.name) {
         finalSchoolName = leadAny.schoolName || leadAny.school || leadAny.name;
@@ -83,7 +86,7 @@ export const registerUser = async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    return res.status(201).json({ success: true, token, user });
+    return res.status(201).json({ success: true, token, user, data: { token, user } });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -143,9 +146,66 @@ export const loginUser = async (req: Request, res: Response) => {
       where: { id: user.id },
     });
 
-    return res.status(200).json({ success: true, token, user: updatedUser });
+    return res.status(200).json({ success: true, token, user: updatedUser, data: { token, user: updatedUser } });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Handler Autentikasi Google OAuth
+export const googleAuth = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Token Google tidak ditemukan' });
+    }
+
+    // Verifikasi Token ID dari Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      return res.status(400).json({ success: false, message: 'Token Google tidak valid' });
+    }
+
+    const { email, name } = payload;
+
+    // Cari user berdasarkan email
+    let user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    // Jika user belum terdaftar, buat akun otomatis (Auto-register)
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          name: name || 'User Google',
+          email: email,
+          passwordHash: '', // Password kosong karena login via Google
+          role: Role.STUDENT,
+        },
+      });
+    }
+
+    const appToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login Google berhasil',
+      token: appToken,
+      user,
+      data: { token: appToken, user },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: 'Autentikasi Google gagal: ' + error.message });
   }
 };
 
