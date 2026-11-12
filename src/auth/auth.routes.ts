@@ -2,14 +2,11 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient, Role } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { OAuth2Client } from 'google-auth-library';
+import { googleAuth } from './auth.controller';
 
 const router = Router();
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-jwt-tanggap-org';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // Helper: Memetakan input role bahasa Indonesia / user input ke enum Role Prisma
 export const mapRoleToEnum = (roleInput?: string): Role => {
@@ -116,7 +113,7 @@ const loginUser = async (req: Request, res: Response) => {
       where: { email: data.email },
     });
 
-    if (!user) {
+    if (!user || !user.passwordHash) {
       return res.status(400).json({ success: false, message: 'Email atau password salah' });
     }
 
@@ -172,60 +169,6 @@ const loginUser = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     return res.status(400).json({ success: false, message: error.message || 'Terjadi kesalahan' });
-  }
-};
-
-// Handler Google OAuth
-const googleAuth = async (req: Request, res: Response) => {
-  try {
-    const { token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({ success: false, message: 'Token Google tidak ditemukan' });
-    }
-
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload();
-    if (!payload || !payload.email) {
-      return res.status(400).json({ success: false, message: 'Token Google tidak valid' });
-    }
-
-    const { email, name } = payload;
-
-    let user = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          name: name || 'User Google',
-          email: email,
-          passwordHash: '', // Kosong karena autentikasi via Google
-          role: Role.STUDENT,
-        },
-      });
-    }
-
-    const appToken = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: 'Login Google berhasil',
-      token: appToken,
-      user,
-      data: { token: appToken, user },
-    });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: 'Autentikasi Google gagal: ' + error.message });
   }
 };
 
@@ -293,7 +236,7 @@ const processResetPassword = async (req: Request, res: Response) => {
 // --- Mapping ke Router ---
 router.post('/register', registerUser);
 router.post('/login', loginUser);
-router.post('/google', googleAuth); // Endpoint baru untuk Google Login
+router.post('/google', googleAuth);
 router.get('/me', getUserById);
 router.post('/forgot-password', processForgotPassword);
 router.post('/reset-password', processResetPassword);

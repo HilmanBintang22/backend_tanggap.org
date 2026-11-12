@@ -29,7 +29,7 @@ export const registerUser = async (data: any) => {
 
 export const loginUser = async (data: any) => {
   const user = await prisma.user.findUnique({ where: { email: data.email } });
-  if (!user) throw new Error('Email atau password salah');
+  if (!user || !user.passwordHash) throw new Error('Email atau password salah');
 
   const isPasswordValid = await bcrypt.compare(data.password, user.passwordHash);
   if (!isPasswordValid) throw new Error('Email atau password salah');

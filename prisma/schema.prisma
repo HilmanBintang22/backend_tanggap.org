@@ -4,25 +4,26 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id           String      @id @default(uuid())
-  name         String
-  email        String      @unique
-  passwordHash String      @map("password_hash")
-  role         Role        @default(STUDENT)
-  schoolName   String?     @map("school_name")
-  points       Int         @default(0)
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
+  id                 String             @id @default(uuid())
+  name               String
+  email              String             @unique
+  passwordHash       String?            @map("password_hash") // Opsional untuk login Google
+  googleId           String?            @unique @map("google_id") // Menyimpan UID Firebase Auth
+  role               Role               @default(STUDENT)
+  schoolName         String?            @map("school_name")
+  points             Int                @default(0)
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  journals          Journal[]
-  badges            UserBadge[]
-  pointLogs         PointLog[]
-  simulationResults SimulationResult[]
+  // Relasi-relasi (berada di dalam kurung kurawal model User)
+  journals           Journal[]
+  badges             UserBadge[]
+  pointLogs          PointLog[]
+  simulationResults  SimulationResult[]
 
   @@map("users")
 }
@@ -98,14 +99,14 @@ model PointLog {
 }
 
 model Simulation {
-  id          String   @id @default(uuid())
+  id          String             @id @default(uuid())
   title       String
   description String?
   category    String
   duration    Int
-  status      String   @default("DRAFT")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  status      String             @default("DRAFT")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
 
   results     SimulationResult[]
 

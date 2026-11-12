@@ -2,13 +2,10 @@ import { Request, Response } from 'express';
 import { PrismaClient, Role } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { OAuth2Client } from 'google-auth-library';
+import { firebaseAuth } from '../config/firebase';
 
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-jwt-tanggap-org';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // Helper: Memetakan input role bahasa Indonesia / user input ke enum Role Prisma
 export const mapRoleToEnum = (roleInput?: string): Role => {
@@ -38,7 +35,14 @@ export const mapRoleToEnum = (roleInput?: string): Role => {
   return Role.STUDENT;
 };
 
-export const registerUser = async (req: Request, res: Response) => {
+// Helper: Menghapus passwordHash dari objek user sebelum dikirim sebagai response
+const sanitizeUser = (user: any) => {
+  if (!user) return null;
+  const { passwordHash, ...safeUser } = user;
+  return safeUser;
+};
+
+export const registerUser = async (req: Request, res: Response): Promise<Response> => {
   try {
     const data = req.body;
 
@@ -86,20 +90,29 @@ export const registerUser = async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    return res.status(201).json({ success: true, token, user, data: { token, user } });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    const safeUser = sanitizeUser(user);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Registrasi berhasil',
+      token,
+      user: safeUser,
+      data: { token, user: safeUser },
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
+    return res.status(500).json({ success: false, message: errorMessage });
   }
 };
 
-export const loginUser = async (req: Request, res: Response) => {
+export const loginUser = async (req: Request, res: Response): Promise<Response> => {
   try {
     const data = req.body;
     const user = await prisma.user.findUnique({
       where: { email: data.email },
     });
 
-    if (!user) {
+    if (!user || !user.passwordHash) {
       return res.status(400).json({ success: false, message: 'Email atau password salah' });
     }
 
@@ -146,37 +159,46 @@ export const loginUser = async (req: Request, res: Response) => {
       where: { id: user.id },
     });
 
-    return res.status(200).json({ success: true, token, user: updatedUser, data: { token, user: updatedUser } });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    const safeUser = sanitizeUser(updatedUser);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login berhasil',
+      token,
+      user: safeUser,
+      data: { token, user: safeUser },
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
+    return res.status(500).json({ success: false, message: errorMessage });
   }
 };
 
-// Handler Autentikasi Google OAuth
-export const googleAuth = async (req: Request, res: Response) => {
+// Handler Autentikasi Google OAuth menggunakan Firebase Admin SDK
+export const googleAuth = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { token } = req.body;
 
     if (!token) {
-      return res.status(400).json({ success: false, message: 'Token Google tidak ditemukan' });
+      return res.status(400).json({ success: false, message: 'Firebase ID Token tidak ditemukan' });
     }
 
-    // Verifikasi Token ID dari Google
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: GOOGLE_CLIENT_ID,
-    });
+    // Verifikasi Firebase ID Token
+    const decodedToken = await firebaseAuth.verifyIdToken(token);
+    const { uid, email, name } = decodedToken;
 
-    const payload = ticket.getPayload();
-    if (!payload || !payload.email) {
-      return res.status(400).json({ success: false, message: 'Token Google tidak valid' });
+    if (!uid || !email) {
+      return res.status(400).json({ success: false, message: 'Token Google tidak valid atau email tidak ditemukan' });
     }
 
-    const { email, name } = payload;
-
-    // Cari user berdasarkan email
-    let user = await prisma.user.findUnique({
-      where: { email },
+    // Cari user berdasarkan googleId atau email
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { googleId: uid },
+          { email: email },
+        ],
+      },
     });
 
     // Jika user belum terdaftar, buat akun otomatis (Auto-register)
@@ -185,9 +207,16 @@ export const googleAuth = async (req: Request, res: Response) => {
         data: {
           name: name || 'User Google',
           email: email,
-          passwordHash: '', // Password kosong karena login via Google
+          passwordHash: null, // Kosong karena menggunakan login Google
+          googleId: uid,      // Menyimpan Firebase UID
           role: Role.STUDENT,
         },
+      });
+    } else if (!user.googleId) {
+      // Jika user sebelumnya sudah terdaftar manual dengan email yang sama, hubungkan googleId-nya
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { googleId: uid },
       });
     }
 
@@ -197,26 +226,36 @@ export const googleAuth = async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
+    const safeUser = sanitizeUser(user);
+
     return res.status(200).json({
       success: true,
       message: 'Login Google berhasil',
       token: appToken,
-      user,
-      data: { token: appToken, user },
+      user: safeUser,
+      data: { token: appToken, user: safeUser },
     });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: 'Autentikasi Google gagal: ' + error.message });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
+    return res.status(500).json({ success: false, message: 'Autentikasi Google gagal: ' + errorMessage });
   }
 };
 
-export const getUserById = async (req: Request, res: Response) => {
+export const getUserById = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
     const user = await prisma.user.findUnique({
       where: { id: String(id) },
     });
-    return res.status(200).json({ success: true, data: user });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+    }
+
+    const safeUser = sanitizeUser(user);
+    return res.status(200).json({ success: true, data: safeUser });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
+    return res.status(500).json({ success: false, message: errorMessage });
   }
 };

@@ -1,28 +1,31 @@
+import 'dotenv/config';
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import prisma from './src/config/database';
 
-// Import Routes (masuk ke dalam folder src)
-import { default as leadRoutes } from './src/lead/lead.routes';
-import { default as assessmentRoutes } from './src/assessment/assessment.routes';
-import { default as journalRoutes } from './src/journal/journal.routes';
-import { default as authRoutes } from './src/auth/auth.routes';
-import { default as gamificationRoutes } from './src/gamification/gamification.routes';
-import { default as simulationRoutes } from './src/simulation/simulation.routes';
-import { default as classesRoutes } from './src/classes/classes.routes';
-import { default as contentRoutes } from './src/content/content.routes';
-import { default as teacherRoutes } from './src/teacher/teacher.routes';
-import { default as adminRoutes } from './src/admin/admin.routes';
-import { default as schoolsRoutes } from './src/schools/schools.routes';
-
-dotenv.config();
+// Import Routes (mengarah ke dalam folder src)
+import leadRoutes from './src/lead/lead.routes';
+import assessmentRoutes from './src/assessment/assessment.routes';
+import journalRoutes from './src/journal/journal.routes';
+import authRoutes from './src/auth/auth.routes';
+import gamificationRoutes from './src/gamification/gamification.routes';
+import simulationRoutes from './src/simulation/simulation.routes';
+import classesRoutes from './src/classes/classes.routes';
+import contentRoutes from './src/content/content.routes';
+import teacherRoutes from './src/teacher/teacher.routes';
+import adminRoutes from './src/admin/admin.routes';
+import schoolsRoutes from './src/schools/schools.routes';
 
 const app: Application = express();
-const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors());
+// Middleware CORS (Batasi domain untuk produksi/Hostinger, atau biarkan terbuka jika masih tahap uji coba)
+app.use(
+  cors({
+    origin: ['https://tanggap.org', 'https://www.tanggap.org', 'http://localhost:5173'],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -50,7 +53,8 @@ app.get('/api', (_req: Request, res: Response) => {
       'GET    /api/assessments/questions',
       'POST   /api/assessments/submit',
       'GET    /api/assessments/results/:id',
-      // ... dan endpoint lainnya
+      'POST   /api/classes/join',
+      'GET    /api/classes',
     ],
   });
 });
@@ -75,12 +79,5 @@ app.use((req: Request, res: Response) => {
     message: `Rute '${req.method} ${req.originalUrl}' tidak ditemukan`,
   });
 });
-
-// Jalankan server lokal jika bukan di environment Vercel
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`Server berjalan di http://localhost:${PORT}`);
-  });
-}
 
 export default app;
