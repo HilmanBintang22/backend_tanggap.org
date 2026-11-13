@@ -1,0 +1,7 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/u1574764/backend_tanggap.org/
+    - /bin/cp -R * $DEPLOYPATH
+    - /bin/cp -f .gitignore $DEPLOYPATH 2>/dev/null || :
+    - source /home/u1574764/nodevenv/backend_tanggap.org/20/bin/activate && cd $DEPLOYPATH && npm install && npm run build && npx prisma generate
