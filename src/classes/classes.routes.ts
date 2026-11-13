@@ -1,105 +1,196 @@
-import { Router, Request, Response } from 'express';
-import { optionalAuth } from '../middleware/auth.middleware';
+import { randomInt } from 'node:crypto';
+import { Prisma } from '@prisma/client';
+import { Router, Response } from 'express';
+import prisma from '../config/database';
+import { AuthenticatedRequest, authenticateToken } from '../middleware/auth.middleware';
+import { authorizeRoles } from '../middleware/role.middleware';
 
 const router = Router();
+const classAdmins = [authenticateToken, authorizeRoles('SCHOOL_ADMIN', 'SUPER_ADMIN')];
 
-// Daftar kode kelas yang valid
-const CLASS_REGISTRY: Record<string, { name: string; school: string }> = {
-  'SMAN1A': { name: 'Kelas XI IPA 1', school: 'SMA Negeri 1' },
-  'SMAN1B': { name: 'Kelas XI IPS 1', school: 'SMA Negeri 1' },
-  'DEMO01': { name: 'Kelas Demo', school: 'Tanggap.org Demo School' },
+const isUniqueConstraintError = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+
+const generateClassCode = () => randomInt(0, 1_000_000).toString().padStart(6, '0');
+
+const getUserId = (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user?.id;
+  if (typeof userId !== 'string' || userId.length === 0) {
+    res.status(401).json({ success: false, message: 'Token tidak berisi identitas pengguna yang valid' });
+    return null;
+  }
+  return userId;
 };
 
-// POST /api/classes/join — Siswa bergabung ke kelas dengan kode OTP 6-digit
-router.post('/join', optionalAuth, async (req: Request, res: Response) => {
+router.post('/join', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({ success: false, message: 'Kode kelas harus terdiri dari 6 angka' });
+  }
+
   try {
-    const { code } = req.body;
-
-    if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Kode kelas wajib diisi',
-      });
+    const classroom = await prisma.classroom.findUnique({ where: { code } });
+    if (!classroom) {
+      return res.status(404).json({ success: false, message: 'Kode kelas tidak ditemukan' });
     }
 
-    const classData = CLASS_REGISTRY[code.toUpperCase()];
-
-    if (!classData) {
-      return res.status(404).json({
-        success: false,
-        message: `Kode kelas "${code}" tidak ditemukan. Pastikan kode sudah benar.`,
-      });
-    }
+    const membership = await prisma.classMembership.upsert({
+      where: {
+        userId_classroomId: { userId, classroomId: classroom.id },
+      },
+      create: { userId, classroomId: classroom.id },
+      update: {},
+    });
 
     return res.status(200).json({
       success: true,
-      message: `Berhasil bergabung ke ${classData.name}`,
+      message: `Berhasil bergabung ke ${classroom.name}`,
       data: {
-        code: code.toUpperCase(),
-        className: classData.name,
-        name: classData.name,
-        school: classData.school,
-        joinedAt: new Date().toISOString(),
+        classroom: {
+          id: classroom.id,
+          name: classroom.name,
+          schoolName: classroom.schoolName,
+        },
+        joinedAt: membership.joinedAt,
       },
     });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+  } catch (error) {
+    console.error('Gagal bergabung ke kelas:', error);
+    return res.status(500).json({ success: false, message: 'Gagal bergabung ke kelas' });
   }
 });
 
-// GET /api/classes — Daftar kelas yang tersedia
-router.get('/', optionalAuth, async (_req: Request, res: Response) => {
-  const classes = Object.entries(CLASS_REGISTRY).map(([code, data]) => ({
-    id: code,
-    code,
-    name: data.name,
-    className: data.name,
-    school: data.school,
-  }));
-  return res.status(200).json({ success: true, data: classes });
+router.post('/', ...classAdmins, async (req: AuthenticatedRequest, res: Response) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (req.body?.schoolName !== undefined && req.body.schoolName !== null && typeof req.body.schoolName !== 'string') {
+    return res.status(400).json({ success: false, message: 'Nama sekolah harus berupa teks atau null' });
+  }
+  const schoolName =
+    typeof req.body?.schoolName === 'string' ? req.body.schoolName.trim() || null : null;
+
+  if (!name || name.length > 120 || (schoolName && schoolName.length > 160)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Nama kelas wajib diisi (maksimal 120 karakter); nama sekolah maksimal 160 karakter',
+    });
+  }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      const classroom = await prisma.classroom.create({
+        data: { name, schoolName, code: generateClassCode(), createdById: userId },
+      });
+      return res.status(201).json({
+        success: true,
+        message: 'Kelas berhasil dibuat',
+        data: classroom,
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) continue;
+      console.error('Gagal membuat kelas:', error);
+      return res.status(500).json({ success: false, message: 'Gagal membuat kelas' });
+    }
+  }
+
+  return res.status(503).json({
+    success: false,
+    message: 'Tidak berhasil membuat kode kelas unik. Silakan coba kembali.',
+  });
 });
 
-// GET /api/classes/:id — Detail spesifik 1 kelas berdasarkan ID atau Kode Kelas (misal: SMAN1A)
-router.get('/:id', optionalAuth, async (req: Request, res: Response) => {
+router.get('/manage', ...classAdmins, async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const searchKey = Array.isArray(id) ? id[0].toUpperCase() : id.toUpperCase();
+    const classrooms = await prisma.classroom.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { memberships: true } } },
+    });
+    return res.status(200).json({ success: true, data: classrooms });
+  } catch (error) {
+    console.error('Gagal mengambil daftar kelas:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengambil daftar kelas' });
+  }
+});
 
-    const classData = CLASS_REGISTRY[searchKey];
-    if (classData) {
+router.post('/:id/regenerate-code', ...classAdmins, async (req: AuthenticatedRequest, res: Response) => {
+  const id = typeof req.params.id === 'string' ? req.params.id : '';
+  if (!id) {
+    return res.status(400).json({ success: false, message: 'ID kelas tidak valid' });
+  }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      const classroom = await prisma.classroom.update({
+        where: { id },
+        data: { code: generateClassCode() },
+      });
       return res.status(200).json({
         success: true,
-        data: {
-          id: searchKey,
-          code: searchKey,
-          name: classData.name,
-          className: classData.name,
-          school: classData.school,
-          schoolName: classData.school,
-          teacherName: 'Guru BK Pembimbing',
-          studentCount: 34,
-          createdAt: new Date().toISOString(),
-        },
+        message: 'Kode kelas berhasil diperbarui',
+        data: classroom,
       });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) continue;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        return res.status(404).json({ success: false, message: 'Kelas tidak ditemukan' });
+      }
+      console.error('Gagal memperbarui kode kelas:', error);
+      return res.status(500).json({ success: false, message: 'Gagal memperbarui kode kelas' });
     }
+  }
 
-    // Dynamic fallback agar siswa/guru tidak 404 saat akses kode kelas lain
-    return res.status(200).json({
-      success: true,
-      data: {
-        id: searchKey,
-        code: searchKey,
-        name: `Kelas ${searchKey}`,
-        className: `Kelas ${searchKey}`,
-        school: 'Tanggap School Partner',
-        schoolName: 'Tanggap School Partner',
-        teacherName: 'Guru BK Pembimbing',
-        studentCount: 30,
-        createdAt: new Date().toISOString(),
+  return res.status(503).json({
+    success: false,
+    message: 'Tidak berhasil membuat kode kelas unik. Silakan coba kembali.',
+  });
+});
+
+router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const classrooms = await prisma.classroom.findMany({
+      select: {
+        id: true,
+        name: true,
+        schoolName: true,
+        createdAt: true,
+        _count: { select: { memberships: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    return res.status(200).json({ success: true, data: classrooms });
+  } catch (error) {
+    console.error('Gagal mengambil daftar kelas:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengambil daftar kelas' });
+  }
+});
+
+router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
+  const id = typeof req.params.id === 'string' ? req.params.id : '';
+  if (!id) return res.status(400).json({ success: false, message: 'ID kelas tidak valid' });
+
+  try {
+    const classroom = await prisma.classroom.findFirst({
+      where: { OR: [{ id }, { code: id }] },
+      select: {
+        id: true,
+        name: true,
+        schoolName: true,
+        createdAt: true,
+        _count: { select: { memberships: true } },
       },
     });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    if (!classroom) {
+      return res.status(404).json({ success: false, message: 'Kelas tidak ditemukan' });
+    }
+    return res.status(200).json({ success: true, data: classroom });
+  } catch (error) {
+    console.error('Gagal mengambil detail kelas:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengambil detail kelas' });
   }
 });
 

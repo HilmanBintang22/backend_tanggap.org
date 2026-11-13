@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Role } from '@prisma/client';
+import { Gender, Prisma, Role } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { firebaseAuth } from '../config/firebase';
+import { getFirebaseAuth } from '../config/firebase';
+import prisma from '../config/database';
+import { AuthenticatedRequest } from '../middleware/auth.middleware';
 
-const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-jwt-tanggap-org';
 
 // Helper: Memetakan input role bahasa Indonesia / user input ke enum Role Prisma
@@ -45,6 +46,13 @@ const sanitizeUser = (user: any) => {
 export const registerUser = async (req: Request, res: Response): Promise<Response> => {
   try {
     const data = req.body;
+    const genderValues = Object.values(Gender);
+    if (data.gender != null && !genderValues.includes(data.gender)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Jenis kelamin harus LAKI_LAKI atau PEREMPUAN',
+      });
+    }
 
     const existingUser = await prisma.user.findUnique({
       where: { email: data.email },
@@ -81,6 +89,7 @@ export const registerUser = async (req: Request, res: Response): Promise<Respons
         passwordHash: hashedPassword,
         role: finalRole,
         schoolName: finalSchoolName,
+        gender: data.gender ?? null,
       },
     });
 
@@ -184,29 +193,47 @@ export const googleAuth = async (req: Request, res: Response): Promise<Response>
     }
 
     // Verifikasi Firebase ID Token
-    const decodedToken = await firebaseAuth.verifyIdToken(token);
-    const { uid, email, name } = decodedToken;
-
-    if (!uid || !email) {
-      return res.status(400).json({ success: false, message: 'Token Google tidak valid atau email tidak ditemukan' });
+    if (typeof token !== 'string') {
+      return res.status(400).json({ success: false, message: 'Firebase ID Token harus berupa teks' });
     }
 
-    // Cari user berdasarkan googleId atau email
-    let user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { googleId: uid },
-          { email: email },
-        ],
-      },
-    });
+    const decodedToken = await getFirebaseAuth().verifyIdToken(token);
+    const { uid, email, name, email_verified: emailVerified } = decodedToken;
+
+    if (!uid || !email || !emailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token Google tidak valid atau email belum terverifikasi',
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    let user = await prisma.user.findUnique({ where: { googleId: uid } });
+
+    if (user && user.email.toLowerCase() !== normalizedEmail) {
+      return res.status(409).json({
+        success: false,
+        message: 'Akun Google ini sudah terhubung ke akun pengguna lain',
+      });
+    }
+
+    if (!user) {
+      user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    }
+
+    if (user?.googleId && user.googleId !== uid) {
+      return res.status(409).json({
+        success: false,
+        message: 'Email ini sudah terhubung ke akun Google lain',
+      });
+    }
 
     // Jika user belum terdaftar, buat akun otomatis (Auto-register)
     if (!user) {
       user = await prisma.user.create({
         data: {
-          name: name || 'User Google',
-          email: email,
+          name: typeof name === 'string' && name.trim() ? name.trim() : 'User Google',
+          email: normalizedEmail,
           passwordHash: null, // Kosong karena menggunakan login Google
           googleId: uid,      // Menyimpan Firebase UID
           role: Role.STUDENT,
@@ -254,6 +281,92 @@ export const getUserById = async (req: Request, res: Response): Promise<Response
 
     const safeUser = sanitizeUser(user);
     return res.status(200).json({ success: true, data: safeUser });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
+    return res.status(500).json({ success: false, message: errorMessage });
+  }
+};
+
+export const getMe = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+  const userId = req.user?.id;
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return res.status(401).json({ success: false, message: 'Token tidak berisi identitas pengguna yang valid' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+    }
+
+    const safeUser = sanitizeUser(user);
+    return res.status(200).json({
+      success: true,
+      message: 'Data profil berhasil diambil',
+      user: safeUser,
+      data: safeUser,
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
+    return res.status(500).json({ success: false, message: errorMessage });
+  }
+};
+
+export const updateProfile = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<Response> => {
+  const userId = req.user?.id;
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return res.status(401).json({ success: false, message: 'Token tidak berisi identitas pengguna yang valid' });
+  }
+
+  const { name, schoolName, gender } = req.body ?? {};
+  const data: Prisma.UserUpdateInput = {};
+
+  if (name !== undefined) {
+    if (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 120) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nama harus berupa teks dengan panjang 1 sampai 120 karakter',
+      });
+    }
+    data.name = name.trim();
+  }
+
+  if (schoolName !== undefined) {
+    if (schoolName !== null && typeof schoolName !== 'string') {
+      return res.status(400).json({ success: false, message: 'Nama sekolah harus berupa teks atau null' });
+    }
+    data.schoolName = typeof schoolName === 'string' ? schoolName.trim() || null : null;
+  }
+
+  if (gender !== undefined) {
+    if (gender !== null && !Object.values(Gender).includes(gender)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Jenis kelamin harus LAKI_LAKI, PEREMPUAN, atau null',
+      });
+    }
+    data.gender = gender;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return res.status(400).json({ success: false, message: 'Tidak ada perubahan profil yang dikirim' });
+  }
+
+  try {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+    const safeUser = sanitizeUser(user);
+    return res.status(200).json({
+      success: true,
+      message: 'Profil berhasil diperbarui',
+      user: safeUser,
+      data: safeUser,
+    });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan pada server';
     return res.status(500).json({ success: false, message: errorMessage });

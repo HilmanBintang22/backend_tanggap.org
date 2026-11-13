@@ -8,24 +8,55 @@ datasource db {
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  name               String
-  email              String             @unique
-  passwordHash       String?            @map("password_hash") // Opsional untuk login Google
-  googleId           String?            @unique @map("google_id") // Menyimpan UID Firebase Auth
-  role               Role               @default(STUDENT)
-  schoolName         String?            @map("school_name")
-  points             Int                @default(0)
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String?  @map("password_hash") // Opsional untuk login Google
+  googleId     String?  @unique @map("google_id") // Menyimpan UID Firebase Auth
+  gender       Gender?
+  role         Role     @default(STUDENT)
+  schoolName   String?  @map("school_name")
+  points       Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relasi-relasi (berada di dalam kurung kurawal model User)
-  journals           Journal[]
-  badges             UserBadge[]
-  pointLogs          PointLog[]
-  simulationResults  SimulationResult[]
+  journals          Journal[]
+  badges            UserBadge[]
+  pointLogs         PointLog[]
+  simulationResults SimulationResult[]
+  classMemberships  ClassMembership[]
+  createdClasses    Classroom[]        @relation("ClassroomCreator")
 
   @@map("users")
+}
+
+model Classroom {
+  id          String   @id @default(uuid())
+  name        String
+  schoolName  String?  @map("school_name")
+  code        String   @unique @db.VarChar(6)
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy   User              @relation("ClassroomCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  memberships ClassMembership[]
+
+  @@map("classrooms")
+}
+
+model ClassMembership {
+  userId      String   @map("user_id")
+  classroomId String   @map("classroom_id")
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+
+  @@id([userId, classroomId])
+  @@index([classroomId])
+  @@map("class_memberships")
 }
 
 model Lead {
@@ -57,19 +88,19 @@ model Journal {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("journals")
 }
 
 model Badge {
-  id          String      @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
   description String
-  iconUrl     String?     @map("icon_url")
-  createdAt   DateTime    @default(now()) @map("created_at")
+  iconUrl     String?  @map("icon_url")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  users       UserBadge[]
+  users UserBadge[]
 
   @@map("badges")
 }
@@ -80,8 +111,8 @@ model UserBadge {
   badgeId   String   @map("badge_id")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
 
   @@map("user_badges")
 }
@@ -93,36 +124,36 @@ model PointLog {
   reason    String
   createdAt DateTime @default(now()) @map("created_at")
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("point_logs")
 }
 
 model Simulation {
-  id          String             @id @default(uuid())
+  id          String   @id @default(uuid())
   title       String
   description String?
   category    String
   duration    Int
-  status      String             @default("DRAFT")
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
+  status      String   @default("DRAFT")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  results     SimulationResult[]
+  results SimulationResult[]
 
   @@map("simulations")
 }
 
 model SimulationResult {
-  id           String     @id @default(uuid())
-  userId       String     @map("user_id")
-  simulationId String     @map("simulation_id")
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  simulationId String   @map("simulation_id")
   score        Float
-  status       String     @default("COMPLETED")
-  completedAt  DateTime   @default(now()) @map("completed_at")
+  status       String   @default("COMPLETED")
+  completedAt  DateTime @default(now()) @map("completed_at")
 
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  simulation   Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  simulation Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
 
   @@map("simulation_results")
 }
@@ -132,6 +163,11 @@ enum Role {
   TEACHER_BK
   SCHOOL_ADMIN
   SUPER_ADMIN
+}
+
+enum Gender {
+  LAKI_LAKI
+  PEREMPUAN
 }
 
 enum LeadStatus {
